@@ -1,1 +1,4 @@
-# Code and files for manuscript: Simulations of life history variation for demographic inference from population genomic data
+# Simulations of life history variation for demographic inference from population genomic data
+===
+
+##### Code and supporting files
