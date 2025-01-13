@@ -1,0 +1,679 @@
+function  (integer)addLitter(o<Individual>$ female, o<Individual>$ male, o<Subpopulation>$ pop) {
+    litterN = rpois(1, r);
+    pop.addCrossed(female, male, count = litterN);
+    return(litterN);
+}
+
+initialize() {
+    defineConstant("name", NAME);
+    defineConstant("G", 1000);
+    defineGlobal("outpath",OUTPATH);
+    seed = sample(1:1e+06, 1);
+    defineGlobal("outfile", paste0(name, "_", seed));
+    defineGlobal("tSeq", TS);	
+    if (tSeq != "T") {
+        tSeq = "F";
+    }
+    defineGlobal("gentime", rep(NAN, 10000));
+    defineGlobal("Ne_vec_p1", rep(NAN, 10000));
+    defineGlobal("Ne_vec_p2", rep(NAN, 10000));
+    defineGlobal("sample_size", asInteger(100));
+    initializeSLiMModelType("nonWF");
+    if (tSeq == "T") {
+        initializeSex("A");
+        initializeTreeSeq();
+        defineGlobal("tSeq_file", paste0(outpath, "/", outfile, ".trees"));
+        initializeMutationType("m1", 0.5, "f", 0);
+        initializeMutationRate(0);
+        initializeGenomicElementType("g1", m1, 1);
+        initializeGenomicElement(g1, 0, G - 1);
+        value = 0.5;
+        defineConstant("rec_rate", asFloat(value));
+        initializeRecombinationRate(rec_rate);
+    } else {
+        initializeSLiMOptions(nucleotideBased = T);
+        initializeSex("A");
+        initializeMutationTypeNuc("m1", 0.5, "f", 0);
+        m1.convertToSubstitution = T;
+        defineConstant("ancPop", ANCPOP);
+        defineGlobal("vcfFile", paste0(outpath, "/", outfile, ".vcf"));
+        defineConstant("mut_rate", asFloat(2.5e-10));
+        if (mut_rate == 0) {
+            defineGlobal("Ne_mut", 1e-05);
+        } else {
+            defineGlobal("Ne_mut", asFloat(mut_rate));
+        }
+        initializeGenomicElementType("g1", m1, 1, mmJukesCantor(mut_rate));
+        initializeGenomicElement(g1, 0, G - 1);
+        defineConstant("rec_rate", asFloat(0.5));
+        initializeRecombinationRate(rec_rate);
+        initializeAncestralNucleotides(randomNucleotides(G));
+    }
+    defineGlobal("K", asInteger(C));
+    defineGlobal("r", 1);
+    defineGlobal("l", asInteger(L));
+    defineGlobal("am", 0.2);
+    defineGlobal("ls", 0.2);
+    defineGlobal("lr", 1);
+    vec = rev(seq(1, 0, -ls)[0:(lr)]);
+    defineGlobal("m", c(0, rep(am, (l - (lr + 1))), vec));
+    defineGlobal("om", 0.7);
+    defineGlobal("ar", asInteger(AR));
+    defineGlobal("ars", 0.8);
+    defineGlobal("arr", 1);
+    if (ar == 1) {
+        ars = asFloat(1);
+        arr = asInteger(0);
+    }
+    if (arr != 0) {
+        lower_ages = seq(ar - arr, ar - 1, 1);
+        prob_lower = ((1 - ars)/arr);
+        vec = rep(asFloat(1), l + 1);
+        vec[ar] = ars;
+        vec[lower_ages] = prob_lower;
+        vec[seq(lower_ages - 1, 0, -1)] = asFloat(0);
+    } else {
+        vec = rep(asFloat(1), l + 1);
+        vec[ar] = ars;
+        vec[seq(ar - 1, 0, -1)] = asFloat(0);
+    }
+    defineGlobal("rprob", vec);
+    defineGlobal("rc", 1);
+    defineGlobal("mates", asInteger(MATES));
+    defineGlobal("sdmates", 0.5);
+    defineGlobal("t_ev", asInteger(0));
+    defineGlobal("ev_type", "none");
+    defineGlobal("n_events", asInteger(1));
+    defineGlobal("ev_gap", asInteger(1));
+    defineGlobal("dc", asFloat(0));
+    defineGlobal("mig", asFloat(0.9));
+    if (t_ev != 0) {
+        if (n_events > 1) {
+            dur = (n_events - 1) * ev_gap;
+            end = t_ev + dur;
+        } else {
+            end = t_ev;
+        }
+        defineGlobal("ev_ticks", seq(t_ev, end, ev_gap));
+    } else {
+        defineGlobal("ev_ticks", 0);
+    }
+}
+
+1:10000 reproduction() {
+    p1_allfemales = p1.individuals[p1.individuals.sex == "F"];
+    p2_allfemales = p2.individuals[p2.individuals.sex == "F"];
+    p1_allmales = p1.individuals[p1.individuals.sex == "M"];
+    if (length(p1_allmales) != 0) {
+        rep = sapply(rprob[p1_allmales.age], "rbinom(1,1,applyValue);");
+        p1_allmales = p1_allmales[which(rep == 1)];
+    }
+    p2_allmales = p2.individuals[p2.individuals.sex == "M"];
+    if (length(p2_allmales) != 0) {
+        rep = sapply(rprob[p2_allmales.age], "rbinom(1,1,applyValue);");
+        p2_allmales = p2_allmales[which(rep == 1)];
+    }
+    p1_females = sample(p1_allfemales, length(p1_allfemales));
+    p2_females = sample(p2_allfemales, length(p2_allfemales));
+    p1_males = sample(p1_allmales, length(p1_allmales));
+    p2_males = sample(p2_allmales, length(p2_allmales));
+    if (length(p1_females) != 0 & length(p1_males) != 0) {
+        potMates = sapply(1:length(p1_males), "asInteger(round(rnorm(1,mates,sdmates)));");
+        potMates[which(potMates == 0)] = 1;
+        potMates[which(potMates < 0 )] = potMates[which(potMates < 0 )] * -1;
+        rpt_males = sapply(0:(length(p1_males) - 1), "rep(p1_males[applyValue],potMates[applyValue]);");
+        rpt_males_i = sapply(0:(length(p1_males) - 1), "rep(applyValue+1,potMates[applyValue]);");
+        if (length(p1_females) <= length(rpt_males)) {
+            litterSize = sapply(0:(length(p1_females) - 1), "addLitter(p1_females[applyValue],rpt_males[applyValue],p1);");
+            nrepfemales = length(p1_females);
+            males_i = rpt_males_i[0:(length(litterSize) - 1)];
+            nrepmales = length(unique(males_i));
+            actMates = sapply(unique(males_i), "length(which(males_i == applyValue));");
+            offN = sapply(unique(males_i), "sum(litterSize[which(males_i == applyValue)]);");
+            repsuc_div = offN/actMates;
+            n_nonrepmales = length(p1_males) - nrepmales;
+            actMates = c(actMates, rep(0, n_nonrepmales));
+            offN = c(offN, rep(0, n_nonrepmales));
+            repsuc_div = c(repsuc_div, rep(0, n_nonrepmales));
+            repsuc_prod = actMates * offN;
+        } else {
+            litterSize = sapply(0:(length(rpt_males) - 1), "addLitter(p1_females[applyValue],rpt_males[applyValue],p1);");
+            nrepmales = length(p1_males);
+            nrepfemales = length(rpt_males);
+            actMates = potMates;
+            offN = sapply(unique(rpt_males_i), "sum(litterSize[which(rpt_males_i == applyValue)]);");
+            repsuc_div = offN/actMates;
+            repsuc_prod = actMates * offN;
+        }
+        p1.setValue("n_repmales", nrepmales);
+        p1.setValue("n_repfemales", nrepfemales);
+        p1.setValue("Ne_count", asInteger((4 * nrepfemales * nrepmales)/(nrepfemales + nrepmales)));
+        Ne_vec_p1[community.tick - 1] = p1.getValue("Ne_count");
+        p1.setValue("potrepmales_age", p1_males.age);
+        p1.setValue("potMates", potMates);
+        p1.setValue("mean_potMates", mean(potMates));
+        p1.setValue("var_potMates", var(potMates));
+        p1.setValue("actMates", actMates);
+        p1.setValue("mean_actMates", mean(actMates));
+        p1.setValue("var_actMates", var(actMates));
+        p1.setValue("offN", offN);
+        p1.setValue("mean_offN", mean(offN));
+        p1.setValue("var_offN", var(offN));
+        p1.setValue("mean_litterSize", mean(litterSize));
+        p1.setValue("var_litterSize", var(litterSize));
+        p1.setValue("RepSuc_prod", repsuc_prod);
+        p1.setValue("meanRep_prod", mean(repsuc_prod));
+        p1.setValue("varRep_prod", var(repsuc_prod));
+        p1.setValue("RepSuc_div", repsuc_div);
+        p1.setValue("meanRep_div", mean(repsuc_div));
+        p1.setValue("varRep_div", var(repsuc_div));
+    } else {
+        p1.setValue("n_repmales", 0);
+        p1.setValue("n_repfemales", 0);
+        p1.setValue("Ne_count", NULL);
+        p1.setValue("potrepmales_age", NULL);
+        p1.setValue("potMates", NULL);
+        p1.setValue("mean_potMates", NULL);
+        p1.setValue("var_potMates", NULL);
+        p1.setValue("actMates", NULL);
+        p1.setValue("mean_actMates", NULL);
+        p1.setValue("var_actMates", NULL);
+        p1.setValue("offN", NULL);
+        p1.setValue("mean_offN", NULL);
+        p1.setValue("var_offN", NULL);
+        p1.setValue("mean_offN_repmales", NULL);
+        p1.setValue("var_offN_repmales", NULL);
+        p1.setValue("RepSuc_prod", NULL);
+        p1.setValue("RepSuc_div", NULL);
+        p1.setValue("meanRep_prod", NULL);
+        p1.setValue("meanRep_div", NULL);
+        p1.setValue("varRep_prod", NULL);
+        p1.setValue("varRep_div", NULL);
+    }
+    if (length(p2_females) != 0 & length(p2_males) != 0) {
+        potMates = sapply(1:length(p2_males), "asInteger(round(rnorm(1,mates,sdmates)));");
+        potMates[which(potMates == 0)] = 1;
+        potMates[which(potMates < 0 )] = potMates[which(potMates < 0 )] * -1;
+        rpt_males = sapply(0:(length(p2_males) - 1), "rep(p2_males[applyValue],potMates[applyValue]);");
+        rpt_males_i = sapply(0:(length(p2_males) - 1), "rep(applyValue+1,potMates[applyValue]);");
+        if (length(p2_females) <= length(rpt_males)) {
+            litterSize = sapply(0:(length(p2_females) - 1), "addLitter(p2_females[applyValue],rpt_males[applyValue],p2);");
+            nrepfemales = length(p2_females);
+            males_i = rpt_males_i[0:(length(litterSize) - 1)];
+            nrepmales = length(unique(males_i));
+            actMates = sapply(unique(males_i), "length(which(males_i == applyValue));");
+            offN = sapply(unique(males_i), "sum(litterSize[which(males_i == applyValue)]);");
+            repsuc_div = offN/actMates;
+            n_nonrepmales = length(p2_males) - nrepmales;
+            actMates = c(actMates, rep(0, n_nonrepmales));
+            offN = c(offN, rep(0, n_nonrepmales));
+            repsuc_div = c(repsuc_div, rep(0, n_nonrepmales));
+            repsuc_prod = actMates * offN;
+        } else {
+            litterSize = sapply(0:(length(rpt_males) - 1), "addLitter(p2_females[applyValue],rpt_males[applyValue],p2);");
+            nrepmales = length(p2_males);
+            nrepfemales = length(rpt_males);
+            actMates = potMates;
+            offN = sapply(unique(rpt_males_i), "sum(litterSize[which(rpt_males_i == applyValue)]);");
+            repsuc_div = offN/actMates;
+            repsuc_prod = actMates * offN;
+        }
+        p2.setValue("n_repmales", nrepmales);
+        p2.setValue("n_repfemales", nrepfemales);
+        p2.setValue("Ne_count", asInteger((4 * nrepfemales * nrepmales)/(nrepfemales + nrepmales)));
+        Ne_vec_p2[community.tick - 1] = p2.getValue("Ne_count");
+        p2.setValue("potrepmales_age", p2_males.age);
+        p2.setValue("potMates", potMates);
+        p2.setValue("mean_potMates", mean(potMates));
+        p2.setValue("var_potMates", var(potMates));
+        p2.setValue("actMates", actMates);
+        p2.setValue("mean_actMates", mean(actMates));
+        p2.setValue("var_actMates", var(actMates));
+        p2.setValue("offN", offN);
+        p2.setValue("mean_offN", mean(offN));
+        p2.setValue("var_offN", var(offN));
+        p2.setValue("mean_litterSize", mean(litterSize));
+        p2.setValue("var_litterSize", var(litterSize));
+        p2.setValue("RepSuc_prod", repsuc_prod);
+        p2.setValue("meanRep_prod", mean(repsuc_prod));
+        p2.setValue("varRep_prod", var(repsuc_prod));
+        p2.setValue("RepSuc_div", repsuc_div);
+        p2.setValue("meanRep_div", mean(repsuc_div));
+        p2.setValue("varRep_div", var(repsuc_div));
+    } else {
+        p2.setValue("n_repmales", 0);
+        p2.setValue("n_repfemales", 0);
+        p2.setValue("Ne_count", NULL);
+        p2.setValue("potrepmales_age", NULL);
+        p2.setValue("potMates", NULL);
+        p2.setValue("mean_potMates", NULL);
+        p2.setValue("var_potMates", NULL);
+        p2.setValue("actMates", NULL);
+        p2.setValue("mean_actMates", NULL);
+        p2.setValue("var_actMates", NULL);
+        p2.setValue("offN", NULL);
+        p2.setValue("mean_offN", NULL);
+        p2.setValue("var_offN", NULL);
+        p2.setValue("mean_offN_repmales", NULL);
+        p2.setValue("var_offN_repmales", NULL);
+        p2.setValue("RepSuc_prod", NULL);
+        p2.setValue("RepSuc_div", NULL);
+        p2.setValue("meanRep_prod", NULL);
+        p2.setValue("meanRep_div", NULL);
+        p2.setValue("varRep_prod", NULL);
+        p2.setValue("varRep_div", NULL);
+    }
+    self.active = 0;
+}
+
+1 first() {
+    sim.addSubpop("p1", K, 0.5);
+    p1.setValue("K", K);
+    if (tSeq == "F") {
+        p1.genomes.readFromVCF(ancPop, m1);
+    }
+    p1.individuals.age = rdunif(K, min = 1, max = l - 1);
+    sim.addSubpop("p2", 0);
+    if (ev_type == "dem") {
+        p2.setValue("K", 0);
+    }
+    if (ev_type == "split") {
+        p1.setValue("K", K/2);
+        p2.setValue("K", K/2);
+        p1.setValue("mig", mig);
+        p2.setValue("mig", mig);
+        p2_inds = sample(p1.individuals, asInteger(round(K/2)));
+        p2.takeMigrants(p2_inds);
+    }
+    p1.setValue("N_initial", p1.individualCount);
+    p2.setValue("N_initial", p2.individualCount);
+    p1.setValue("N_males_initial", length(p1.individuals[p1.individuals.sex == "M"]));
+    p1.setValue("N_females_initial", length(p1.individuals[p1.individuals.sex == "F"]));
+    p2.setValue("N_males_initial", length(p2.individuals[p2.individuals.sex == "M"]));
+    p2.setValue("N_females_initial", length(p2.individuals[p2.individuals.sex == "F"]));
+    defineConstant("params", community.createLogFile(paste0(outpath, "/", outfile, ".par")));
+    params.addCustomColumn("name", "name;");
+    params.addCustomColumn("outpath", "outpath;");
+    params.addCustomColumn("outfile", "outfile;");
+    params.addCustomColumn("tSeq", "tSeq;");
+    params.addCustomColumn("G", "G;");
+    params.addCustomColumn("rec_rate", "rec_rate;");
+    if (tSeq == "F") {
+        params.addCustomColumn("mut_rate", "mut_rate;");
+    }
+    params.addCustomColumn("sample_size", "sample_size;");
+    params.addCustomColumn("K", "K;");
+    params.addCustomColumn("l", "l;");
+    params.addCustomColumn("ls", "ls;");
+    params.addCustomColumn("lr", "lr;");
+    params.addCustomColumn("m", "paste(m,sep=' ');");
+    params.addCustomColumn("r", "r;");
+    params.addCustomColumn("am", "am;");
+    params.addCustomColumn("om", "om;");
+    params.addCustomColumn("ar", "ar;");
+    params.addCustomColumn("ars", "ars;");
+    params.addCustomColumn("arr", "arr;");
+    params.addCustomColumn("rprob", "paste(rprob,sep=' ');");
+    params.addCustomColumn("rc", "rc;");
+    params.addCustomColumn("mates", "mates;");
+    params.addCustomColumn("sdmates", "sdmates;");
+    params.addCustomColumn("t_ev", "t_ev;");
+    params.addCustomColumn("ev_type", "ev_type;");
+    params.addCustomColumn("n_events", "n_events;");
+    params.addCustomColumn("ev_gap", "ev_gap;");
+    params.addCustomColumn("ev_ticks", "paste(ev_ticks,sep=' ');");
+    params.addCustomColumn("dc", "dc;");
+    params.addCustomColumn("initial_mig", "mig;");
+    params.logRow();
+    defineConstant("log", community.createLogFile(paste0(outpath, "/", outfile, ".log")));
+    log.addTick();
+    log.addCustomColumn("name", "name;");
+    log.addCustomColumn("outpath", "outpath;");
+    log.addCustomColumn("outfile", "outfile;");
+    log.addCustomColumn("N_initial_p1", "p1.getValue('N_initial');");
+    log.addCustomColumn("births_p1", "p1.getValue('births');");
+    log.addCustomColumn("N_pre_m_p1", "p1.getValue('N_pre_m');");
+    log.addCustomColumn("N_post_om_p1", "p1.getValue('N_post_om');");
+    log.addCustomColumn("N_migrants_p1", "p1.getValue('p1Migrants');");
+    log.addCustomColumn("N_post_mig_p1", "p1.getValue('N_post_mig');");
+    log.addCustomColumn("N_post_am_p1", "p1.getValue('N_post_am');");
+    log.addCustomColumn("N_post_K_p1", "p1.individualCount;");
+    log.addCustomColumn("applied_K_p1", "p1.getValue('K');");
+    log.addCustomColumn("lamba_p1", "p1.individualCount/p1.getValue('N_initial');");
+    log.addCustomColumn("mean_age_preK_p1", "p1.getValue('mean_age_preK');");
+    log.addCustomColumn("sd_age_preK_p1", "p1.getValue('sd_age_preK');");
+    log.addCustomColumn("median_age_preK_p1", "p1.getValue('median_age_preK');");
+    log.addCustomColumn("min_age_preK_p1", "p1.getValue('min_age_preK');");
+    log.addCustomColumn("max_age_preK_p1", "p1.getValue('max_age_preK');");
+    log.addCustomColumn("prop_abv75pct_preK_p1", "p1.getValue('prop_abv75pct_preK');");
+    log.addCustomColumn("mean_age_postK_p1", "p1.getValue('mean_age_postK');");
+    log.addCustomColumn("sd_age_postK_p1", "p1.getValue('sd_age_postK');");
+    log.addCustomColumn("median_age_postK_p1", "p1.getValue('median_age_postK');");
+    log.addCustomColumn("min_age_postK_p1", "p1.getValue('min_age_postK');");
+    log.addCustomColumn("max_age_postK_p1", "p1.getValue('max_age_postK');");
+    log.addCustomColumn("prop_abv75pct_postK_p1", "p1.getValue('prop_abv75pct_postK');");
+    log.addSubpopulationSexRatio(p1);
+    log.addCustomColumn("N_males_initial_p1", "p1.getValue('N_males_initial');");
+    log.addCustomColumn("N_females_initial_p1", "p1.getValue('N_females_initial');");
+    log.addCustomColumn("potrepmales_age_p1", "paste(p1.getValue('potrepmales_age'),sep=' ');");
+    log.addCustomColumn("N_repmales_p1", "p1.getValue('n_repmales');");
+    log.addCustomColumn("N_repfemales_p1", "p1.getValue('n_repfemales');");
+    log.addCustomColumn("potMates_p1", "paste(p1.getValue('potMates'),sep=' ');");
+    log.addCustomColumn("mean_potMates_p1", "p1.getValue('mean_potMates');");
+    log.addCustomColumn("var_potMates_p1", "p1.getValue('var_potMates');");
+    log.addCustomColumn("actMates_p1", "paste(p1.getValue('actMates'),sep=' ');");
+    log.addCustomColumn("mean_actMates_p1", "p1.getValue('mean_actMates');");
+    log.addCustomColumn("var_actMates_p1", "p1.getValue('var_actMates');");
+    log.addCustomColumn("mean_litterSize_p1", "p1.getValue('mean_litterSize');");
+    log.addCustomColumn("var_litterSize_p1", "p1.getValue('var_litterSize');");
+    log.addCustomColumn("offN_p1", "paste(p1.getValue('offN'),sep=' ');");
+    log.addCustomColumn("mean_offN_p1", "p1.getValue('mean_offN');");
+    log.addCustomColumn("var_offN_p1", "p1.getValue('var_offN');");
+    log.addCustomColumn("RepSuc_prod_p1", "paste(p1.getValue('RepSuc_prod'),sep=' ');");
+    log.addCustomColumn("meanRep_prod_p1", "p1.getValue('meanRep_prod');");
+    log.addCustomColumn("varRep_prod_p1", "p1.getValue('varRep_prod');");
+    log.addCustomColumn("RepSuc_div_p1", "paste(p1.getValue('RepSuc_div'),sep=' ');");
+    log.addCustomColumn("meanRep_div_p1", "p1.getValue('meanRep_div');");
+    log.addCustomColumn("varRep_div_p1", "p1.getValue('varRep_div');");
+    log.addCustomColumn("Ne_count_p1", "p1.getValue('Ne_count');");
+    log.addCustomColumn("avg_Ne_p1", "mean(Ne_vec_p1[(asInteger(length(Ne_vec_p1)/2)-1):(length(Ne_vec_p1)-1)]);");
+    if (tSeq == "F") {
+        log.addCustomColumn("pi_p1", "p1.getValue('pi');");
+        log.addCustomColumn("Ne_ht_p1", "p1.getValue('Ne_ht');");
+    }
+    log.addCustomColumn("N_initial_p2", "p2.getValue('N_initial');");
+    log.addCustomColumn("births_p2", "p2.getValue('births');");
+    log.addCustomColumn("N_pre_m_p2", "p2.getValue('N_pre_m');");
+    log.addCustomColumn("N_post_om_p2", "p2.getValue('N_post_om');");
+    log.addCustomColumn("N_migrants_p2", "p2.getValue('p2Migrants');");
+    log.addCustomColumn("N_post_mig_p2", "p2.getValue('N_post_mig');");
+    log.addCustomColumn("N_post_am_p2", "p2.getValue('N_post_am');");
+    log.addCustomColumn("N_post_K_p2", "p2.individualCount;");
+    log.addCustomColumn("applied_K_p2", "p2.getValue('K');");
+    log.addCustomColumn("lamba_p2", "p2.individualCount/p2.getValue('N_initial');");
+    log.addCustomColumn("mean_age_preK_p2", "p2.getValue('mean_age_preK');");
+    log.addCustomColumn("sd_age_preK_p2", "p2.getValue('sd_age_preK');");
+    log.addCustomColumn("median_age_preK_p2", "p2.getValue('median_age_preK');");
+    log.addCustomColumn("min_age_preK_p2", "p2.getValue('min_age_preK');");
+    log.addCustomColumn("max_age_preK_p2", "p2.getValue('max_age_preK');");
+    log.addCustomColumn("prop_abv75pct_preK_p2", "p2.getValue('prop_abv75pct_preK');");
+    log.addCustomColumn("mean_age_postK_p2", "p2.getValue('mean_age_postK');");
+    log.addCustomColumn("sd_age_postK_p2", "p2.getValue('sd_age_postK');");
+    log.addCustomColumn("median_age_postK_p2", "p2.getValue('median_age_postK');");
+    log.addCustomColumn("min_age_postK_p2", "p2.getValue('min_age_postK');");
+    log.addCustomColumn("max_age_postK_p2", "p2.getValue('max_age_postK');");
+    log.addCustomColumn("prop_abv75pct_postK_p2", "p2.getValue('prop_abv75pct_postK');");
+    log.addSubpopulationSexRatio(p2);
+    log.addCustomColumn("N_males_initial_p2", "p2.getValue('N_males_initial');");
+    log.addCustomColumn("N_females_initial_p2", "p2.getValue('N_females_initial');");
+    log.addCustomColumn("potrepmales_age_p2", "paste(p2.getValue('potrepmales_age'),sep=' ');");
+    log.addCustomColumn("N_repmales_p2", "p2.getValue('n_repmales');");
+    log.addCustomColumn("N_repfemales_p2", "p2.getValue('n_repfemales');");
+    log.addCustomColumn("potMates_p2", "paste(p2.getValue('potMates'),sep=' ');");
+    log.addCustomColumn("mean_potMates_p2", "p2.getValue('mean_potMates');");
+    log.addCustomColumn("var_potMates_p2", "p2.getValue('var_potMates');");
+    log.addCustomColumn("actMates_p2", "paste(p2.getValue('actMates'),sep=' ');");
+    log.addCustomColumn("mean_actMates_p2", "p2.getValue('mean_actMates');");
+    log.addCustomColumn("var_actMates_p2", "p2.getValue('var_actMates');");
+    log.addCustomColumn("mean_litterSize_p2", "p2.getValue('mean_litterSize');");
+    log.addCustomColumn("var_litterSize_p2", "p2.getValue('var_litterSize');");
+    log.addCustomColumn("offN_p2", "paste(p2.getValue('offN'),sep=' ');");
+    log.addCustomColumn("mean_offN_p2", "p2.getValue('mean_offN');");
+    log.addCustomColumn("var_offN_p2", "p2.getValue('var_offN');");
+    log.addCustomColumn("RepSuc_prod_p2", "paste(p2.getValue('RepSuc_prod'),sep=' ');");
+    log.addCustomColumn("meanRep_prod_p2", "p2.getValue('meanRep_prod');");
+    log.addCustomColumn("varRep_prod_p2", "p2.getValue('varRep_prod');");
+    log.addCustomColumn("RepSuc_div_p2", "paste(p2.getValue('RepSuc_div'),sep=' ');");
+    log.addCustomColumn("meanRep_div_p2", "p2.getValue('meanRep_div');");
+    log.addCustomColumn("varRep_div_p2", "p2.getValue('varRep_div');");
+    log.addCustomColumn("Ne_count_p2", "p2.getValue('Ne_count');");
+    log.addCustomColumn("avg_Ne_p2", "mean(Ne_vec_p2[(asInteger(length(Ne_vec_p2)/2)-1):(length(Ne_vec_p2)-1)]);");
+    if (tSeq == "F") {
+        log.addCustomColumn("pi_p2", "p2.getValue('pi');");
+        log.addCustomColumn("Ne_ht_p2", "p2.getValue('Ne_ht');");
+    }
+    log.addCustomColumn("gt", "mean(gentime[(asInteger(length(gentime)/2)-1):(length(gentime)-1)]);");
+    log.addCustomColumn("applied_mig_p1", "p1.getValue('mig');");
+    log.addCustomColumn("applied_mig_p2", "p2.getValue('mig');");
+    if (tSeq == "F") {
+        log.addCustomColumn("total_ht", "p1.getValue('total_ht');");
+        log.addCustomColumn("fst", "p1.getValue('fst');");
+    }
+}
+
+1:10000 early() {
+    p1.setValue("births", sum(p1.individuals.age == 0));
+    p2.setValue("births", sum(p2.individuals.age == 0));
+    p1.setValue("N_pre_m", p1.individualCount);
+    p2.setValue("N_pre_m", p2.individualCount);
+    sim.killIndividuals(sample(p1.individuals[p1.individuals.age == 0], asInteger(om * p1.getValue("births"))));
+    p1.setValue("N_post_om", p1.individualCount);
+    if (p2.individualCount != 0) {
+        sim.killIndividuals(sample(p2.individuals[p2.individuals.age == 0], asInteger(om * p2.getValue("births"))));
+    }
+    p2.setValue("N_post_om", p2.individualCount);
+    if (p2.individualCount != 0) {
+        p1.setValue("p1Migrants", rbinom(1, p1.individualCount, p1.getValue("mig")));
+        p2.setValue("p2Migrants", rbinom(1, p2.individualCount, p2.getValue("mig")));
+        if (p1.getValue("p1Migrants") != 0) {
+            migrants = sample(p1.individuals, p1.getValue("p1Migrants"));
+            p2.takeMigrants(migrants);
+        }
+        if (p2.getValue("p2Migrants") != 0) {
+            migrants = sample(p2.individuals, p2.getValue("p2Migrants"));
+            p1.takeMigrants(migrants);
+        }
+    } else {
+        p1.setValue("p1Migrants", 0);
+        p2.setValue("p2Migrants", 0);
+    }
+    p1.setValue("N_post_mig", p1.individualCount);
+    p2.setValue("N_post_mig", p2.individualCount);
+    if (p1.individualCount > 1) {
+        mod = integerMod(p1.individualCount, 2);
+        sorted_ages = sort(p1.individuals.age);
+        if (mod == 1) {
+            p1.setValue("median_age_preK", sorted_ages[asInteger(p1.individualCount/2) - 1]);
+        } else {
+            mid_1 = sorted_ages[asInteger(p1.individualCount/2) - 1];
+            mid_2 = sorted_ages[asInteger(p1.individualCount/2)];
+            p1.setValue("median_age_preK", asInteger(mean(c(mid_1, mid_2))));
+        }
+        q = quantile(p1.individuals.age);
+        p1.setValue("prop_abv75pct_preK", (length(p1.individuals[p1.individuals.age >= asInteger(q[3])])/p1.individualCount));
+        p1.setValue("mean_age_preK", mean(p1.individuals.age));
+        p1.setValue("sd_age_preK", sd(p1.individuals.age));
+        p1.setValue("min_age_preK", min(p1.individuals.age));
+        p1.setValue("max_age_preK", max(p1.individuals.age));
+    } else {
+        p1.setValue("mean_age_preK", NULL);
+        p1.setValue("median_age_preK", NULL);
+        p1.setValue("sd_age_preK", NULL);
+        p1.setValue("min_age_preK", NULL);
+        p1.setValue("max_age_preK", NULL);
+        p1.setValue("max_age_preK", NULL);
+        p1.setValue("prop_abv75pct_preK", NULL);
+    }
+    if (p2.individualCount > 1) {
+        mod = integerMod(p2.individualCount, 2);
+        sorted_ages = sort(p2.individuals.age);
+        if (mod == 1) {
+            p2.setValue("median_age_preK", sorted_ages[asInteger(p2.individualCount/2) - 1]);
+        } else {
+            mid_1 = sorted_ages[asInteger(p2.individualCount/2) - 1];
+            mid_2 = sorted_ages[asInteger(p2.individualCount/2)];
+            p2.setValue("median_age_preK", asInteger(mean(c(mid_1, mid_2))));
+        }
+        q = quantile(p2.individuals.age);
+        p2.setValue("prop_abv75pct_preK", (length(p2.individuals[p2.individuals.age >= asInteger(q[3])])/p2.individualCount));
+        p2.setValue("mean_age_preK", mean(p2.individuals.age));
+        p2.setValue("sd_age_preK", sd(p2.individuals.age));
+        p2.setValue("min_age_preK", min(p2.individuals.age));
+        p2.setValue("max_age_preK", max(p2.individuals.age));
+    } else {
+        p2.setValue("mean_age_preK", NULL);
+        p2.setValue("median_age_preK", NULL);
+        p2.setValue("sd_age_preK", NULL);
+        p2.setValue("min_age_preK", NULL);
+        p2.setValue("max_age_preK", NULL);
+        p2.setValue("max_age_preK", NULL);
+        p2.setValue("prop_abv75pct_preK", NULL);
+    }
+    if (p1.individualCount > 1) {
+        ages = p1.individuals.age;
+        p1.individuals.fitnessScaling = 1 - m[ages];
+        mean_fit = mean(p1.individuals.fitnessScaling);
+        if (!(isNULL(mean_fit))) {
+            p1.fitnessScaling = p1.getValue("K")/(p1.individualCount * mean_fit);
+        }
+    }
+    if (p2.individualCount > 1) {
+        ages = p2.individuals.age;
+        p2.individuals.fitnessScaling = 1 - m[ages];
+        mean_fit = mean(p2.individuals.fitnessScaling);
+        if (!(isNULL(mean_fit))) {
+            p2.fitnessScaling = p2.getValue("K")/(p2.individualCount * mean_fit);
+        }
+    }
+}
+
+1:10000 late() {
+    p1.setValue("N_post_am", p1.individualCount);
+    p2.setValue("N_post_am", p2.individualCount);
+    avgParAge_p1 = NULL;
+    avgParAge_p2 = NULL;
+    if (p1.individualCount != 0) {
+        avgParAge_p1 = mean(p1.individuals.meanParentAge);
+    }
+    if (p2.individualCount != 0) {
+        avgParAge_p2 = mean(p2.individuals.meanParentAge);
+    }
+    avgParAge = c(avgParAge_p1, avgParAge_p2);
+    if (!isNULL(avgParAge)) {
+        gentime[community.tick - 1] = mean(avgParAge);
+    } else {
+        gentime[community.tick - 1] = 0;
+    }
+    if (p1.individualCount > 1) {
+        mod = integerMod(p1.individualCount, 2);
+        sorted_ages = sort(p1.individuals.age);
+        if (mod == 1) {
+            p1.setValue("median_age_postK", sorted_ages[asInteger(p1.individualCount/2) - 1]);
+        } else {
+            mid_1 = sorted_ages[asInteger(p1.individualCount/2) - 1];
+            mid_2 = sorted_ages[asInteger(p1.individualCount/2)];
+            p1.setValue("median_age_postK", asInteger(mean(c(mid_1, mid_2))));
+        }
+        q = quantile(p1.individuals.age);
+        p1.setValue("prop_abv75pct_postK", (length(p1.individuals[p1.individuals.age >= asInteger(q[3])])/p1.individualCount));
+        p1.setValue("mean_age_postK", mean(p1.individuals.age));
+        p1.setValue("sd_age_postK", sd(p1.individuals.age));
+        p1.setValue("min_age_postK", min(p1.individuals.age));
+        p1.setValue("max_age_postK", max(p1.individuals.age));
+    } else {
+        p1.setValue("mean_age_postK", NULL);
+        p1.setValue("median_age_postK", NULL);
+        p1.setValue("sd_age_postK", NULL);
+        p1.setValue("min_age_postK", NULL);
+        p1.setValue("max_age_postK", NULL);
+        p1.setValue("prop_abv75pct_postK", NULL);
+    }
+    if (p2.individualCount > 1) {
+        mod = integerMod(p2.individualCount, 2);
+        sorted_ages = sort(p2.individuals.age);
+        if (mod == 1) {
+            p2.setValue("median_age_postK", sorted_ages[asInteger(p2.individualCount/2) - 1]);
+        } else {
+            mid_1 = sorted_ages[asInteger(p2.individualCount/2) - 1];
+            mid_2 = sorted_ages[asInteger(p2.individualCount/2)];
+            p2.setValue("median_age_postK", asInteger(mean(c(mid_1, mid_2))));
+        }
+        q = quantile(p2.individuals.age);
+        p2.setValue("prop_abv75pct_postK", (length(p2.individuals[p2.individuals.age >= asInteger(q[3])])/p2.individualCount));
+        p2.setValue("mean_age_postK", mean(p2.individuals.age));
+        p2.setValue("sd_age_postK", sd(p2.individuals.age));
+        p2.setValue("min_age_postK", min(p2.individuals.age));
+        p2.setValue("max_age_postK", max(p2.individuals.age));
+    } else {
+        p2.setValue("mean_age_postK", NULL);
+        p2.setValue("median_age_postK", NULL);
+        p2.setValue("sd_age_postK", NULL);
+        p2.setValue("min_age_postK", NULL);
+        p2.setValue("max_age_postK", NULL);
+        p2.setValue("prop_abv75pct_postK", NULL);
+    }
+    if (tSeq == "F") {
+        if (p1.individualCount > 1) {
+            if (rec_rate == 0.5) {
+                ht = sapply(0:(G - 1), "calcHeterozygosity(p1.genomes,start=applyValue,end=applyValue);");
+                p1.setValue("pi", mean(ht));
+            } else {
+                p1.setValue("pi", calcHeterozygosity(p1.genomes));
+            }
+            p1.setValue("Ne_ht", (p1.getValue("pi")/(4 * Ne_mut)));
+        } else {
+            p1.setValue("pi", 0);
+            p1.setValue("Ne_ht", (p1.getValue("pi")/(4 * Ne_mut)));
+        }
+        if (p2.individualCount > 1) {
+            if (rec_rate == 0.5) {
+                ht = sapply(0:(G - 1), "calcHeterozygosity(p2.genomes,start=applyValue,end=applyValue);");
+                p2.setValue("pi", mean(ht));
+            } else {
+                p2.setValue("pi", calcHeterozygosity(p2.genomes));
+            }
+            p2.setValue("Ne_ht", (p2.getValue("pi")/(4 * Ne_mut)));
+        } else {
+            p2.setValue("pi", 0);
+            p2.setValue("Ne_ht", (p2.getValue("pi")/(4 * Ne_mut)));
+        }
+    }
+    if (tSeq == "F") {
+        if (p1.individualCount > 1 & p2.individualCount > 1) {
+            if (rec_rate == 0.5) {
+                total_ht = sapply(0:(G - 1), "calcHeterozygosity(c(p1.genomes,p2.genomes),start=applyValue,end=applyValue);");
+                p1.setValue("total_ht", mean(total_ht));
+                value = sapply(0:(G - 1), "calcFST(p1.genomes,p2.genomes,start=applyValue,end=applyValue);");
+                p1.setValue("fst", mean(value));
+            } else {
+                p1.setValue("total_ht", calcHeterozygosity(c(p1.genomes, p2.genomes)));
+                p1.setValue("fst", calcFST(p1.genomes, p2.genomes));
+            }
+        } else {
+            p1.setValue("total_ht", 0);
+            p1.setValue("fst", 0);
+        }
+    }
+    //log.logRow();
+    if (t_ev != 0) {
+        cyclecheck = setIntersection(sim.cycle, ev_ticks);
+        if (length(cyclecheck != 0)) {
+            if (ev_type == "dem") {
+                p1.setValue("K", asInteger(p1.getValue("K") * (1 + dc)));
+            }
+            if (ev_type == "split") {
+                p1.setValue("mig", (p1.getValue("mig") + dc));
+                p2.setValue("mig", (p2.getValue("mig") + dc));
+            }
+        }
+    }
+    p1.setValue("N_initial", p1.individualCount);
+    p2.setValue("N_initial", p2.individualCount);
+    p1.setValue("N_males_initial", length(p1.individuals[p1.individuals.sex == "M"]));
+    p1.setValue("N_females_initial", length(p1.individuals[p1.individuals.sex == "F"]));
+    p2.setValue("N_males_initial", length(p2.individuals[p2.individuals.sex == "M"]));
+    p2.setValue("N_females_initial", length(p2.individuals[p2.individuals.sex == "F"]));
+}
+
+10000 late() {
+    log.logRow();
+    if (tSeq == "T") {
+        sim.treeSeqOutput(tSeq_file);
+    } else {
+        if (sample_size > p1.individualCount) {
+            sample_size = p1.individualCount;
+        }
+        p1.outputVCFSample(sampleSize = sample_size, filePath = vcfFile, simplifyNucleotides = T);
+    }
+}
+
