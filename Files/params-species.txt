@@ -1,11 +1,11 @@
 ------- ipyrad params file (v.0.9.102)------------------------------------------
-pfilicauda                     ## [0] [assembly_name]: Assembly name. Used to name output directories for assembly steps
-/home/rilquer/pfilicauda       ## [1] [project_dir]: Project dir (made in curdir if not present)
+species                        ## [0] [assembly_name]: Assembly name. Used to name output directories for assembly steps
+/home/rilquer/species          ## [1] [project_dir]: Project dir (made in curdir if not present)
                                ## [2] [raw_fastq_path]: Location of raw non-demultiplexed fastq files
                                ## [3] [barcodes_path]: Location of barcodes file
 ./samples/*                    ## [4] [sorted_fastq_path]: Location of demultiplexed/sorted fastq files
 reference                      ## [5] [assembly_method]: Assembly method (denovo, reference)
-./ref/pfilicauda_ref.fna       ## [6] [reference_sequence]: Location of reference sequence file
+./ref/species_ref.fna          ## [6] [reference_sequence]: Location of reference sequence file
 gbs                            ## [7] [datatype]: Datatype (see docs): rad, gbs, ddrad, etc.
 TGCA,                          ## [8] [restriction_overhang]: Restriction overhang (cut1,) or (cut1, cut2)
 5                              ## [9] [max_low_qual_bases]: Max low quality base calls (Q<20) in a read
