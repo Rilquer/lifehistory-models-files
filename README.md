@@ -4,5 +4,6 @@
 
 This repository contains the following files:
 - Script for genetic simulations of life history
+- Model parameters, population parameters and summary statistics utilized for Random Forest models
 - Table S1 - Information on data availability and sampling locality for sequences utilized as a case-study 
 - Script for reference genome mapping of the empirical dataset utilized as a case-study
